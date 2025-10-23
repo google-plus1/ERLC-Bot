@@ -1,110 +1,106 @@
-// =======================================
-// ERLC Discord Audio Bot (Render Version)
-// =======================================
+// ==========================
+// ERLC Discord Audio Bot
+// ==========================
+
 import express from "express";
-import fs from "fs";
-import path from "path";
-import cors from "cors";
-import { fileURLToPath } from "url";
-import {
-  Client,
-  GatewayIntentBits,
-  Partials
-} from "discord.js";
+import { Client, GatewayIntentBits } from "discord.js";
 import {
   joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
-  AudioPlayerStatus
+  AudioPlayerStatus,
+  getVoiceConnection
 } from "@discordjs/voice";
+import 'libsodium-wrappers';
+import fs from "fs";
+import path from "path";
 
-// =======================================
-// Basic setup
-// =======================================
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
-app.use(express.json());
-app.use(cors());
-
+// --------------------------
+// CONFIG
+// --------------------------
+const TOKEN = process.env.DISCORD_BOT_TOKEN; // set in Render environment variables
+const GUILD_ID = process.env.GUILD_ID; // your Discord server ID
 const PORT = process.env.PORT || 3000;
-const TOKEN = process.env.DISCORD_TOKEN;
-const GUILD_ID = process.env.GUILD_ID;
 
-if (!TOKEN || !GUILD_ID) {
-  console.error("❌ Missing DISCORD_TOKEN or GUILD_ID in environment variables!");
-  process.exit(1);
-}
-
-// =======================================
-// Discord bot setup
-// =======================================
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates
-  ],
-  partials: [Partials.Channel]
-});
-
-// =======================================
-// Route → voice channel mapping
-// =======================================
-// Make sure the channel names EXACTLY match your Discord server!
+// Route names to Discord channel names (exact spelling)
 const ROUTE_CHANNELS = {
+  "Lijn 6": "lijn 70 (dont delete)",
   "Line A": "lijn 70 (dont delete)",
   "Line C": "lijn 70 (dont delete)",
-  "FastLine": "lijn 70 (dont delete)",
-  "Lijn 6": "lijn 70 (dont delete)"
+  "FastLine": "lijn 70 (dont delete)"
 };
 
-// =======================================
-// Function to connect and play station audio
-// =======================================
-async function playStationAudio(route, station) {
+// --------------------------
+// DISCORD CLIENT
+// --------------------------
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
+});
+
+client.once("ready", () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+});
+
+// --------------------------
+// EXPRESS APP
+// --------------------------
+const app = express();
+app.use(express.json());
+
+// ✅ Health check
+app.get("/", (req, res) => {
+  res.send("✅ ERLC Discord Bot is running");
+});
+
+// 🎵 Endpoint called by your website
+app.post("/next-station", async (req, res) => {
   try {
-    const guild = await client.guilds.fetch(GUILD_ID);
-    const channelName = ROUTE_CHANNELS[route];
+    const { routeName, stationName } = req.body;
+    console.log(`➡️ Next station request: ${routeName} -> ${stationName}`);
 
+    if (!routeName || !stationName) {
+      console.warn("⚠️ Missing routeName or stationName");
+      return res.status(400).json({ error: "Missing routeName or stationName" });
+    }
+
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+    const channelName = ROUTE_CHANNELS[routeName];
     if (!channelName) {
-      console.warn(`⚠️ No voice channel mapped for ${route}`);
-      return { ok: false, message: `No voice channel for ${route}` };
+      console.warn(`⚠️ No voice channel configured for ${routeName}`);
+      return res.status(404).json({ error: "Voice channel not configured" });
     }
 
-    const channel = guild.channels.cache.find(
-      ch => ch.name.toLowerCase() === channelName.toLowerCase()
+    const voiceChannel = guild.channels.cache.find(
+      (ch) => ch.name === channelName && ch.type === 2
     );
-
-    if (!channel) {
-      console.warn(`⚠️ Channel "${channelName}" not found`);
-      return { ok: false, message: `Channel not found: ${channelName}` };
+    if (!voiceChannel) {
+      console.warn(`⚠️ Voice channel not found: ${channelName}`);
+      return res.status(404).json({ error: "Voice channel not found" });
     }
 
-    console.log(`🎧 Connecting to ${channel.name}...`);
-
+    // Join channel
+    console.log(`🎧 Connecting to ${channelName}...`);
     const connection = joinVoiceChannel({
-      channelId: channel.id,
+      channelId: voiceChannel.id,
       guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator,
-      selfDeaf: false,
+      adapterCreator: guild.voiceAdapterCreator
     });
 
-    // Look for audio file
-    const audioDir = path.join(__dirname, "audio");
-    const cleanName = station.toLowerCase().replace(/[^a-z0-9]+/g, "_");
-    const filePath = path.join(audioDir, `${cleanName}.mp3`);
+    // Play audio
+    const audioFile = stationName.toLowerCase().replace(/\s+/g, "_") + ".mp3";
+    const filePath = path.resolve(`./audio/${audioFile}`);
 
     if (!fs.existsSync(filePath)) {
       console.warn(`⚠️ Audio file not found: ${filePath}`);
-      connection.destroy();
-      return { ok: false, message: `Missing audio for ${station}` };
+      return res.status(404).json({ error: "Audio file not found" });
     }
 
-    console.log(`🎵 Playing ${cleanName}.mp3`);
-
+    console.log(`🎵 Playing ${audioFile}`);
     const player = createAudioPlayer();
     const resource = createAudioResource(filePath);
+
     connection.subscribe(player);
     player.play(resource);
 
@@ -113,61 +109,18 @@ async function playStationAudio(route, station) {
       connection.destroy();
     });
 
-    player.on("error", err => {
-      console.error("Audio error:", err);
-      connection.destroy();
-    });
-
-    return { ok: true, message: "Playing audio" };
+    res.json({ success: true, message: `Playing ${stationName}` });
   } catch (err) {
-    console.error("❌ playStationAudio error:", err);
-    return { ok: false, message: err.message };
-  }
-}
-
-// =======================================
-// Web endpoint — triggered from website
-// =======================================
-app.post("/next-station", async (req, res) => {
-  try {
-    const { route, station } = req.body;
-    console.log(`➡️ Next station request: ${route} -> ${station}`);
-
-    if (!route || !station)
-      return res.status(400).json({ error: "Missing route or station" });
-
-    const result = await playStationAudio(route, station);
-
-    if (!result.ok) {
-      return res.status(404).json({ error: result.message });
-    }
-
-    return res.json({ success: true, message: result.message });
-  } catch (err) {
-    console.error("❌ /next-station error:", err);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("❌ Error in /next-station:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// =======================================
-// Root test endpoint
-// =======================================
-app.get("/", (req, res) => {
-  res.send("✅ ERLC Discord Audio Bot is running and ready!");
-});
-
-// =======================================
-// Start Express server
-// =======================================
+// --------------------------
+// START SERVER
+// --------------------------
 app.listen(PORT, () => {
   console.log(`🚀 Bot web server running on port ${PORT}`);
-});
-
-// =======================================
-// Discord login
-// =======================================
-client.once("ready", () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
 client.login(TOKEN);
