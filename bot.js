@@ -4,70 +4,55 @@ import { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerSt
 import { Client, GatewayIntentBits } from "discord.js";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 
-// ------------------------------
-// Config & Setup
-// ------------------------------
+// ES module helpers
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Express setup
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-const TOKEN = process.env.TOKEN;          // Your bot token (Render env)
-const GUILD_ID = process.env.GUILD_ID;    // Your Discord server ID (Render env)
+const TOKEN = process.env.TOKEN;
+const GUILD_ID = process.env.GUILD_ID;
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates
-  ]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
 });
 
 let voiceConnection = null;
 let audioPlayer = createAudioPlayer();
 
-// ------------------------------
-// Voice Channel Mapping
-// ------------------------------
+// Route-to-channel map
 const ROUTE_CHANNELS = {
   "Line A": "1430272873037168821",
   "Line C": "1430272873037168821",
   "FastLine": "1430272873037168821"
 };
 
-// ------------------------------
-// Discord Bot Initialization
-// ------------------------------
+// Discord login
 client.once("ready", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 });
-
 client.login(TOKEN);
 
-// ------------------------------
-// Helper to auto join correct VC
-// ------------------------------
-async function ensureConnected(routeName) {
+// Connect to VC
+async function connectToChannel(routeName) {
   try {
     const guild = await client.guilds.fetch(GUILD_ID);
     const channelId = ROUTE_CHANNELS[routeName];
     if (!channelId) {
       console.log(`⚠️ No voice channel configured for ${routeName}`);
-      return null;
+      return;
     }
 
     const channel = await guild.channels.fetch(channelId);
     if (!channel) {
-      console.log(`⚠️ Channel ID ${channelId} not found for ${routeName}`);
-      return null;
-    }
-
-    if (voiceConnection) {
-      try {
-        voiceConnection.destroy();
-      } catch (err) {
-        console.warn("⚠️ Error disconnecting old connection:", err.message);
-      }
+      console.log(`⚠️ Channel ${channelId} not found`);
+      return;
     }
 
     voiceConnection = joinVoiceChannel({
@@ -75,36 +60,28 @@ async function ensureConnected(routeName) {
       guildId: guild.id,
       adapterCreator: guild.voiceAdapterCreator
     });
-
-    console.log(`🎧 Joined voice channel for ${routeName}: ${channel.name}`);
-    return voiceConnection;
+    console.log(`🎧 Connected to ${channel.name}`);
   } catch (err) {
-    console.error("❌ Error joining channel:", err);
-    return null;
+    console.error("❌ Voice connect error:", err);
   }
 }
 
-// ------------------------------
-// Endpoint: Play Next Station
-// ------------------------------
+// POST /next-station
 app.post("/next-station", async (req, res) => {
   const { routeName, station } = req.body;
-  console.log("➡️ Next station request:", routeName, station);
-  ...
-});
+  if (!routeName || !station) {
+    return res.status(400).json({ success: false, message: "Missing routeName or station" });
+  }
 
+  console.log(`➡️ Next station: ${routeName} -> ${station}`);
 
-  console.log(`➡️ Next station request for ${routeName}: ${station}`);
+  await connectToChannel(routeName);
 
-  // Make sure we're connected to the right channel
-  await ensureConnected(routeName);
-
-  // Path to your MP3s (must be uploaded in Render repo under /audio)
-  const audioDir = path.join(process.cwd(), "audio");
+  const audioDir = path.join(__dirname, "audio");
   const filePath = path.join(audioDir, `${station.toLowerCase()}.mp3`);
 
   if (!fs.existsSync(filePath)) {
-    console.warn(`⚠️ Audio file not found for station: ${station}`);
+    console.log(`⚠️ Missing audio for ${station}`);
     return res.status(404).json({ success: false, message: `No audio file for ${station}` });
   }
 
@@ -114,27 +91,22 @@ app.post("/next-station", async (req, res) => {
     voiceConnection.subscribe(audioPlayer);
 
     audioPlayer.once(AudioPlayerStatus.Idle, () => {
-      console.log(`✅ Finished announcement: ${station}`);
+      console.log(`✅ Finished playing ${station}`);
     });
 
-    res.json({ success: true, message: `Playing audio for ${station}` });
+    res.json({ success: true, message: `Playing ${station}` });
   } catch (err) {
-    console.error("❌ Error playing audio:", err);
+    console.error("❌ Error playing:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ------------------------------
-// Endpoint: Root (for testing)
-// ------------------------------
+// GET /
 app.get("/", (req, res) => {
-  res.send("🎵 ERLC Discord Bot server is running!");
+  res.send("🎵 ERLC Bot is running — send POST to /next-station");
 });
 
-// ------------------------------
-// Start the web server
-// ------------------------------
+// Start server
 app.listen(PORT, () => {
   console.log(`🚀 Bot server running on port ${PORT}`);
 });
-
