@@ -89,10 +89,10 @@ async function ensureConnected(routeName) {
 // ------------------------------
 app.post("/next-station", async (req, res) => {
   const { routeName, station } = req.body;
+  console.log("➡️ Next station request:", routeName, station);
+  ...
+});
 
-  if (!routeName || !station) {
-    return res.status(400).json({ success: false, message: "Missing routeName or station." });
-  }
 
   console.log(`➡️ Next station request for ${routeName}: ${station}`);
 
@@ -137,3 +137,4 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Bot server running on port ${PORT}`);
 });
+
