@@ -82,13 +82,24 @@ async function connectToChannel(routeName) {
 }
 
 // POST /next-station
-app.post("/next-station", async (req, res) => {
-  const { routeName, station } = req.body;
-  if (!routeName || !station) {
-    return res.status(400).json({ success: false, message: "Missing routeName or station" });
-  }
+// Safe audio file lookup
+let filePath = `audio/${station.toLowerCase()}.mp3`;
 
-  console.log(`➡️ Next station: ${routeName} -> ${station}`);
+// Try alternate naming patterns if the first doesn't exist
+if (!fs.existsSync(filePath)) {
+  const candidates = [
+    `audio/${station}.mp3`,
+    `audio/${station.toLowerCase().replace(/ /g, "_")}.mp3`,
+    `audio/${station.toLowerCase().replace(/ /g, "-")}.mp3`
+  ];
+  filePath = candidates.find(p => fs.existsSync(p));
+}
+
+if (!filePath) {
+  console.warn(`⚠️ Missing audio for ${station}`);
+  return res.status(404).send(`Missing audio for ${station}`);
+}
+
 
   await connectToChannel(routeName);
 
@@ -136,6 +147,7 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Bot server running on port ${PORT}`);
 });
+
 
 
 
