@@ -6,6 +6,16 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
+// === Route → Voice Channel Mapping ===
+const ROUTE_CHANNELS = {
+  "Lijn 6": "1430272873037168821",
+  "Lijn 7 Shuttlebus": "1430272873037168821",
+  "Lijn 8 Shuttlebus": "1430272873037168821",
+  "Lijn 9": "1430272873037168821",
+  "FastLine": "1430272873037168821"
+};
+
+
 // ES module helpers
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -115,4 +125,5 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Bot server running on port ${PORT}`);
 });
+
 
