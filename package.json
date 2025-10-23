@@ -1,18 +1,18 @@
 {
   "name": "erlc-discord-bot",
   "version": "1.0.0",
-  "main": "bot.js",
+  "description": "Discord audio bot for ERLC lines",
   "type": "module",
+  "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "discord.js": "^14.15.3",
     "@discordjs/voice": "^0.16.1",
+    "discord.js": "^14.15.3",
     "express": "^4.19.2",
-    "cors": "^2.8.5"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "libsodium-wrappers": "^0.7.13",
+    "path": "^0.12.7",
+    "fs": "0.0.1-security"
   }
 }
