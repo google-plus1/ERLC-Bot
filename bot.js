@@ -27,11 +27,16 @@ let voiceConnection = null;
 let audioPlayer = createAudioPlayer();
 
 // Route-to-channel map
-const ROUTE_CHANNELS = {
-  "Line A": "1430272873037168821",
-  "Line C": "1430272873037168821",
+// Map route names (from your HTML) to Discord voice channel IDs
+const VOICE_CHANNELS = {
+  "Lijn 6": "1430272873037168821",
+  "Lijn 70": "1430272873037168821",
+  "Lijn 7 Shuttlebus": "1430272873037168821",
+  "Lijn 8 Shuttlebus": "1430272873037168821",
+  "Lijn 9": "1430272873037168821",
   "FastLine": "1430272873037168821"
 };
+
 
 // Discord login
 client.once("ready", () => {
@@ -110,3 +115,4 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Bot server running on port ${PORT}`);
 });
+
