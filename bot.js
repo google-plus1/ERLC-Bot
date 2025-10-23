@@ -90,21 +90,64 @@ async function playStationAudio(stationName) {
 // })
 
 app.post("/next-station", async (req, res) => {
-  const { routeName, stationName } = req.body;
-  console.log(`➡️ Next station request: ${routeName} -> ${stationName}`);
-
   try {
-    let connection = getVoiceConnection(GUILD_ID);
-    if (!connection) {
-      console.log("🎧 Connecting to voice...");
-      connection = await connectToChannel();
+    const { routeName, stationName } = req.body;
+    console.log(`➡️ Next station request: ${routeName} -> ${stationName}`);
+
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) return res.status(404).send("Guild not found");
+
+    // Get or join the voice channel for this route
+    const channelId = ROUTE_CHANNELS[routeName];
+    if (!channelId) {
+      console.warn(`⚠️ No voice channel configured for ${routeName}`);
+      return res.status(404).send("No voice channel configured");
     }
 
-    if (stationName) await playStationAudio(stationName);
-    res.json({ success: true, message: `Played ${stationName}` });
+    const connection = joinVoiceChannel({
+      channelId,
+      guildId: guild.id,
+      adapterCreator: guild.voiceAdapterCreator,
+    });
+
+    const player = createAudioPlayer();
+    connection.subscribe(player);
+
+    // Normalize filename
+    const baseName = stationName.toLowerCase().replace(/\s+/g, "_");
+    const nextFile = `audio/${baseName}.mp3`;
+    const lastFile = `audio/last_station.mp3`;
+
+    if (!fs.existsSync(nextFile)) {
+      console.warn(`⚠️ Audio file not found: ${nextFile}`);
+      return res.status(404).send("Audio not found");
+    }
+
+    console.log(`🎧 Connecting to ${guild.channels.cache.get(channelId)?.name || "unknown channel"}...`);
+    console.log(`🎵 Playing ${baseName}.mp3`);
+
+    // Play next station announcement first
+    const nextResource = createAudioResource(fs.createReadStream(nextFile));
+    player.play(nextResource);
+
+    // When finished, check if it’s the last stop
+    player.once(AudioPlayerStatus.Idle, () => {
+      const route = ROUTES[routeName];
+      if (!route) return;
+      const lastStop = route.stops[route.stops.length - 1].toLowerCase();
+      if (baseName === lastStop && fs.existsSync(lastFile)) {
+        console.log("🚏 This is the last station — playing last_station.mp3");
+        const lastResource = createAudioResource(fs.createReadStream(lastFile));
+        player.play(lastResource);
+      } else {
+        console.log("✅ Finished playing station audio");
+      }
+    });
+
+    res.send("OK");
   } catch (err) {
-    console.error("❌ Error handling request:", err);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("❌ Error handling next-station:", err);
+    res.status(500).send("Internal server error");
   }
 });
 
@@ -121,3 +164,4 @@ client.once("ready", () => {
 });
 
 client.login(TOKEN);
+
