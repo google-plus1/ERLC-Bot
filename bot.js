@@ -93,12 +93,23 @@ app.post("/next-station", async (req, res) => {
   await connectToChannel(routeName);
 
   const audioDir = path.join(__dirname, "audio");
-  const filePath = path.join(audioDir, `${station.toLowerCase()}.mp3`);
+ let filePath = `audio/${stationName.toLowerCase()}.mp3`;
 
-  if (!fs.existsSync(filePath)) {
-    console.log(`⚠️ Missing audio for ${station}`);
-    return res.status(404).json({ success: false, message: `No audio file for ${station}` });
-  }
+// If file not found, try a few variations
+if (!fs.existsSync(filePath)) {
+  const possible = [
+    `audio/${stationName}.mp3`,
+    `audio/${stationName.toLowerCase().replace(/ /g, "_")}.mp3`,
+    `audio/${stationName.replace(/ /g, "-").toLowerCase()}.mp3`
+  ];
+  filePath = possible.find(p => fs.existsSync(p));
+}
+
+if (!filePath) {
+  console.warn(`⚠️ Missing audio for ${stationName}`);
+  return res.status(404).send(`Missing audio for ${stationName}`);
+}
+
 
   try {
     const resource = createAudioResource(filePath);
@@ -125,5 +136,6 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Bot server running on port ${PORT}`);
 });
+
 
 
