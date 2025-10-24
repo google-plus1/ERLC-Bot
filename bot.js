@@ -1,115 +1,89 @@
-// =============================
-// ERLC Discord Audio Bot
-// =============================
+// ================================
+// ERLC Discord Audio Bot (Render)
+// ================================
+
+// ----- Imports -----
 import express from "express";
-import path from "path";
-import { fileURLToPath } from "url";
-import { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, getVoiceConnection } from "@discordjs/voice";
+import cors from "cors";
+import fs from "fs";
+import {
+  joinVoiceChannel,
+  createAudioPlayer,
+  createAudioResource,
+  AudioPlayerStatus,
+  VoiceConnectionStatus,
+} from "@discordjs/voice";
 import { Client, GatewayIntentBits } from "discord.js";
 
-// ✅ Dynamic CORS import fix (for Render)
-let cors;
-try {
-  cors = (await import("cors")).default;
-} catch (e) {
-  console.error("⚠️ CORS not found, continuing without it...");
-}
-
-// =============================
-// Setup
-// =============================
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
-app.use(express.json());
-if (cors) app.use(cors());
-
+// ----- Config -----
+const TOKEN = process.env.DISCORD_BOT_TOKEN; // set this in Render Environment
+const GUILD_ID = process.env.GUILD_ID;       // your Discord server ID
 const PORT = process.env.PORT || 3000;
-const TOKEN = process.env.DISCORD_BOT_TOKEN;   // put your bot token in Render environment variable
-const GUILD_ID = process.env.GUILD_ID;         // your Discord server ID
-const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID; // your “lijn 70” channel ID
 
-// Create Discord client
+// 🚍 Which Discord voice channel each route uses
+const ROUTE_CHANNELS = {
+  "Lijn 6": "YOUR_CHANNEL_ID_HERE",     // example: 1386237181189468192
+  "Line A": "YOUR_CHANNEL_ID_HERE",
+  "Line C": "YOUR_CHANNEL_ID_HERE",
+  "FastLine": "YOUR_CHANNEL_ID_HERE",
+};
+
+// ----- Express setup -----
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// ----- Discord client setup -----
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates
-  ]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
 
-// =============================
-// Audio player setup
-// =============================
-const player = createAudioPlayer();
+client.on("clientReady", () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+});
 
-player.on(AudioPlayerStatus.Playing, () => console.log("🎵 Now playing..."));
-player.on(AudioPlayerStatus.Idle, () => console.log("✅ Audio finished"));
-player.on("error", err => console.error("❌ Player error:", err));
+client.login(TOKEN);
 
-// =============================
-// Join Voice Channel
-// =============================
-async function connectToChannel() {
-  const guild = await client.guilds.fetch(GUILD_ID);
-  const channel = await guild.channels.fetch(VOICE_CHANNEL_ID);
-  if (!channel) throw new Error("⚠️ Voice channel not found!");
-  const connection = joinVoiceChannel({
-    channelId: channel.id,
-    guildId: guild.id,
-    adapterCreator: guild.voiceAdapterCreator
-  });
-  connection.subscribe(player);
-  console.log(`🎧 Connected to ${channel.name}`);
-  return connection;
-}
+// Utility
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// =============================
-// Play Station Audio
-// =============================
-async function playStationAudio(stationName) {
-  const filePath = path.join(__dirname, "audio", `${stationName.toLowerCase().replace(/\s+/g, "_")}.mp3`);
-  console.log(`🎵 Attempting to play: ${filePath}`);
-
-  try {
-    const resource = createAudioResource(filePath);
-    player.play(resource);
-  } catch (err) {
-    console.error(`⚠️ Audio file not found or failed: ${filePath}`);
-  }
-}
-
-// =============================
-// Express endpoint
-// =============================
-// Website sends a POST request like:
-// fetch("https://YOUR_RENDER_URL/next-station", {
-//   method: "POST",
-//   headers: { "Content-Type": "application/json" },
-//   body: JSON.stringify({ routeName: "Line A", stationName: "Spawn" })
-// })
-
+// ----- Endpoint -----
 app.post("/next-station", async (req, res) => {
   try {
     const { routeName, stationName } = req.body;
     console.log(`➡️ Next station request: ${routeName} -> ${stationName}`);
 
-    const guild = client.guilds.cache.get(GUILD_ID);
-    if (!guild) return res.status(404).send("Guild not found");
+    if (!routeName || !stationName) {
+      console.warn("⚠️ Missing route or station name in request");
+      return res.status(400).send("Missing route or station name");
+    }
 
-    // Get or join the voice channel for this route
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) {
+      console.error("Guild not found");
+      return res.status(404).send("Guild not found");
+    }
+
+    // Get voice channel for route
     const channelId = ROUTE_CHANNELS[routeName];
     if (!channelId) {
       console.warn(`⚠️ No voice channel configured for ${routeName}`);
       return res.status(404).send("No voice channel configured");
     }
 
+    // Connect to voice
+    console.log(`🎧 Connecting to voice channel for ${routeName}...`);
     const connection = joinVoiceChannel({
       channelId,
       guildId: guild.id,
       adapterCreator: guild.voiceAdapterCreator,
     });
 
+    connection.on(VoiceConnectionStatus.Ready, () => {
+      console.log(`🎧 Connected to ${guild.channels.cache.get(channelId)?.name}`);
+    });
+
+    // Create audio player
     const player = createAudioPlayer();
     connection.subscribe(player);
 
@@ -118,29 +92,42 @@ app.post("/next-station", async (req, res) => {
     const nextFile = `audio/${baseName}.mp3`;
     const lastFile = `audio/last_station.mp3`;
 
+    // Wait 10 seconds before playing
+    console.log(`⏳ Waiting 10 seconds before announcing ${stationName}...`);
+    await wait(10000);
+
+    // Play next station audio
     if (!fs.existsSync(nextFile)) {
-      console.warn(`⚠️ Audio file not found: ${nextFile}`);
+      console.warn(`⚠️ Audio not found: ${nextFile}`);
       return res.status(404).send("Audio not found");
     }
-
-    console.log(`🎧 Connecting to ${guild.channels.cache.get(channelId)?.name || "unknown channel"}...`);
-    console.log(`🎵 Playing ${baseName}.mp3`);
-
-    // Play next station announcement first
+    console.log(`🎵 Playing ${nextFile}`);
     const nextResource = createAudioResource(fs.createReadStream(nextFile));
     player.play(nextResource);
 
-    // When finished, check if it’s the last stop
-    player.once(AudioPlayerStatus.Idle, () => {
-      const route = ROUTES[routeName];
-      if (!route) return;
-      const lastStop = route.stops[route.stops.length - 1].toLowerCase();
+    // When finished, maybe play last-station message
+    player.once(AudioPlayerStatus.Idle, async () => {
+      const routeStops = {
+        "Lijn 6": ["Spawn", "Fire department", "Central park", "Transferium"],
+        "Line A": ["Spawn", "Fire Department", "Central Park", "Farms"],
+        "Line C": ["Spawn", "Chinatown", "Hospital", "Highrock"],
+        "FastLine": ["Springfield", "River City"],
+      };
+
+      const stops = routeStops[routeName] || [];
+      const lastStop = stops[stops.length - 1]?.toLowerCase().replace(/\s+/g, "_");
+
       if (baseName === lastStop && fs.existsSync(lastFile)) {
         console.log("🚏 This is the last station — playing last_station.mp3");
         const lastResource = createAudioResource(fs.createReadStream(lastFile));
         player.play(lastResource);
+        player.once(AudioPlayerStatus.Idle, () => {
+          console.log("👋 Disconnecting after last station");
+          connection.destroy();
+        });
       } else {
         console.log("✅ Finished playing station audio");
+        connection.destroy();
       }
     });
 
@@ -151,17 +138,11 @@ app.post("/next-station", async (req, res) => {
   }
 });
 
-// Health check
-app.get("/", (req, res) => res.send("✅ ERLC Bot is running!"));
-
-// =============================
-// Start Server + Discord Bot
-// =============================
-app.listen(PORT, () => console.log(`🚀 Bot web server running on port ${PORT}`));
-
-client.once("ready", () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
+// ----- Start server -----
+app.listen(PORT, () => {
+  console.log(`🚀 Bot web server running on port ${PORT}`);
 });
 
 client.login(TOKEN);
+
 
