@@ -6,161 +6,148 @@
 import express from "express";
 import cors from "cors";
 import fs from "fs";
+import path from "path";
 import {
   joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
   AudioPlayerStatus,
-  VoiceConnectionStatus,
 } from "@discordjs/voice";
 import { Client, GatewayIntentBits } from "discord.js";
 
+// ----- Setup -----
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-let activeDepartures = []; // gedeelde data voor alle gebruikers
+// ===== Gedeelde data (centrale opslag) =====
+let activeDepartures = []; // [{ routeName, driver, departTime }]
 
-
-// ----- Config -----
-const TOKEN = process.env.DISCORD_BOT_TOKEN; // set this in Render Environment
-const GUILD_ID = process.env.GUILD_ID;       // your Discord server ID
-
-// 🚍 Which Discord voice channel each route uses
-const ROUTE_CHANNELS = {
-  "Lijn 6": "1430272873037168821",     // example: 1386237181189468192
-  "Lijn 12": "1430272873037168821",
-  "FastLine": "1430272873037168821",
-};
-
-// ----- Discord client setup -----
+// ----- Discord Setup -----
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const GUILD_ID = process.env.GUILD_ID; // <-- Zet dit in Render Environment
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
 
-client.on("clientReady", () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-});
+let voiceConnection = null;
+let audioPlayer = createAudioPlayer();
 
-client.login(TOKEN);
+// Mapping van routes naar voicekanalen
+const ROUTE_CHANNELS = {
+  "Lijn 6": "lijn 70 (dont delete)", // Vul je kanaalnaam hier in
+};
 
-// Utility
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// ----- Endpoint -----
-app.post("/next-station", async (req, res) => {
+// 🔊 Functie om verbinding te maken met voice channel
+async function connectToVoice(routeName) {
   try {
-    const { routeName, stationName } = req.body;
-    console.log(`➡️ Next station request: ${routeName} -> ${stationName}`);
+    const guild = await client.guilds.fetch(GUILD_ID);
+    const channelName = ROUTE_CHANNELS[routeName];
+    const channel = guild.channels.cache.find(c => c.name === channelName && c.isVoiceBased());
 
-    if (!routeName || !stationName) {
-      console.warn("⚠️ Missing route or station name in request");
-      return res.status(400).send("Missing route or station name");
+    if (!channel) {
+      console.log(`⚠️ Geen voicekanaal gevonden voor ${routeName}`);
+      return null;
     }
 
-    const guild = client.guilds.cache.get(GUILD_ID);
-    if (!guild) {
-      console.error("Guild not found");
-      return res.status(404).send("Guild not found");
-    }
-
-    // Get voice channel for route
-    const channelId = ROUTE_CHANNELS[routeName];
-    if (!channelId) {
-      console.warn(`⚠️ No voice channel configured for ${routeName}`);
-      return res.status(404).send("No voice channel configured");
-    }
-
-    // Connect to voice
-    console.log(`🎧 Connecting to voice channel for ${routeName}...`);
-    const connection = joinVoiceChannel({
-      channelId,
+    voiceConnection = joinVoiceChannel({
+      channelId: channel.id,
       guildId: guild.id,
       adapterCreator: guild.voiceAdapterCreator,
     });
 
-    connection.on(VoiceConnectionStatus.Ready, () => {
-      console.log(`🎧 Connected to ${guild.channels.cache.get(channelId)?.name}`);
-    });
+    console.log(`🎧 Verbonden met ${channel.name}`);
+    return voiceConnection;
+  } catch (err) {
+    console.error("❌ Voice connect error:", err);
+    return null;
+  }
+}
 
-    // Create audio player
-    const player = createAudioPlayer();
-    connection.subscribe(player);
+// 🔊 Functie om audio af te spelen
+function playAudio(stationName, isLast = false) {
+  const basePath = path.resolve("./audio");
+  const cleanName = stationName.toLowerCase().replace(/\s+/g, "_");
+  const filePath = path.join(basePath, `${cleanName}.mp3`);
+  const lastPath = path.join(basePath, "last_station.mp3");
 
-    // Normalize filename
-    const baseName = stationName.toLowerCase().replace(/\s+/g, "_");
-    const nextFile = `audio/${baseName}.mp3`;
-    const lastFile = `audio/last_station.mp3`;
-
-    // Wait 10 seconds before playing
-    console.log(`⏳ Waiting 10 seconds before announcing ${stationName}...`);
-    await wait(10000);
-
-    // Play next station audio
-    if (!fs.existsSync(nextFile)) {
-      console.warn(`⚠️ Audio not found: ${nextFile}`);
-      return res.status(404).send("Audio not found");
+  setTimeout(() => {
+    if (fs.existsSync(filePath)) {
+      const resource = createAudioResource(filePath);
+      audioPlayer.play(resource);
+      console.log(`🎵 Playing ${cleanName}.mp3`);
+    } else {
+      console.log(`⚠️ Audio bestand niet gevonden: ${filePath}`);
     }
-    console.log(`🎵 Playing ${nextFile}`);
-    const nextResource = createAudioResource(fs.createReadStream(nextFile));
-    player.play(nextResource);
 
-    // When finished, maybe play last-station message
-    player.once(AudioPlayerStatus.Idle, async () => {
-      const routeStops = {
-        "Lijn 6": ["Spawn", "Fire department", "Central park", "Transferium"],
-        "Line A": ["Spawn", "Fire Department", "Central Park", "Farms"],
-        "Line C": ["Spawn", "Chinatown", "Hospital", "Highrock"],
-        "FastLine": ["Springfield", "River City"],
-      };
+    if (isLast) {
+      setTimeout(() => {
+        if (fs.existsSync(lastPath)) {
+          const resource = createAudioResource(lastPath);
+          audioPlayer.play(resource);
+          console.log("🎵 Playing last_station.mp3");
+        } else {
+          console.log("⚠️ Geen last_station.mp3 gevonden");
+        }
+      }, 7000);
+    }
+  }, 10000); // 10 seconden vertraging
+}
 
-      const stops = routeStops[routeName] || [];
-      const lastStop = stops[stops.length - 1]?.toLowerCase().replace(/\s+/g, "_");
+// ====== Express API ======
 
-      if (baseName === lastStop && fs.existsSync(lastFile)) {
-        console.log("🚏 This is the last station — playing last_station.mp3");
-        const lastResource = createAudioResource(fs.createReadStream(lastFile));
-        player.play(lastResource);
-        player.once(AudioPlayerStatus.Idle, () => {
-          console.log("👋 Disconnecting after last station");
-          connection.destroy();
-        });
-      } else {
-        console.log("✅ Finished playing station audio");
-        connection.destroy();
-      }
-    });
+// 📥 Ontvangen van “next station” verzoek
+app.post("/next-station", async (req, res) => {
+  const { routeName, stationName, isLast } = req.body;
+  console.log(`➡️ Next station request: ${routeName} -> ${stationName}`);
 
-    res.send("OK");
+  try {
+    if (!voiceConnection) await connectToVoice(routeName);
+    if (voiceConnection) {
+      playAudio(stationName, isLast);
+      res.json({ success: true });
+    } else {
+      res.status(500).json({ error: "Kon niet verbinden met voicekanaal" });
+    }
   } catch (err) {
     console.error("❌ Error handling next-station:", err);
-    res.status(500).send("Internal server error");
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Bot web server running on port ${PORT}`));
+// 📤 Ontvangen wanneer een chauffeur een route laadt of vertrekt
+app.post("/api/departures", (req, res) => {
+  const { routeName, driver, departTime } = req.body;
+  if (!routeName || !driver || !departTime)
+    return res.status(400).json({ error: "Missing fields" });
 
+  // Als de route al bestaat → update hem
+  const existing = activeDepartures.find(r => r.routeName === routeName);
+  if (existing) {
+    existing.driver = driver;
+    existing.departTime = departTime;
+  } else {
+    activeDepartures.push({ routeName, driver, departTime });
+  }
 
-// ===== Vertrektijden API =====
-app.get("/departures", (req, res) => {
-  res.json(activeDepartures);
-});
-
-app.post("/departures", (req, res) => {
-  const { line, stop, time } = req.body;
-  if (!line || !time) return res.status(400).json({ error: "Missing data" });
-
-  // lijn updaten of toevoegen
-  activeDepartures = activeDepartures.filter(d => d.line !== line);
-  activeDepartures.push({ line, stop, time });
-  console.log("🚍 Nieuw vertrek:", line, "->", stop, time);
+  console.log(`🚌 ${driver} vertrekt met ${routeName} om ${departTime}`);
   res.json({ success: true });
 });
 
+// 📥 Ophalen van vertrektijden
+app.get("/api/departures", (req, res) => {
+  res.json(activeDepartures);
+});
 
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Bot web server running on port ${PORT}`));
 
-client.login(TOKEN);
+// Discord login
+client.once("clientReady", () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+});
+client.login(DISCORD_TOKEN);
 
 
 
