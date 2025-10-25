@@ -14,6 +14,13 @@ import {
   VoiceConnectionStatus,
 } from "@discordjs/voice";
 import { Client, GatewayIntentBits } from "discord.js";
+import express from "express";
+import cors from "cors";
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+let activeDepartures = []; // gedeelde data voor alle gebruikers
 
 // ----- Config -----
 const TOKEN = process.env.DISCORD_BOT_TOKEN; // set this in Render Environment
@@ -142,7 +149,24 @@ app.listen(PORT, () => {
   console.log(`🚀 Bot web server running on port ${PORT}`);
 });
 
+// ==========================
+// API endpoints voor vertrektijden
+// ==========================
+app.get("/departures", (req, res) => {
+  res.json(activeDepartures);
+});
+
+app.post("/departures", (req, res) => {
+  const { line, stop, time } = req.body;
+  if (!line || !time) return res.status(400).json({ error: "Missing data" });
+  activeDepartures = activeDepartures.filter(d => d.line !== line);
+  activeDepartures.push({ line, stop, time });
+  res.json({ success: true });
+});
+
+
 client.login(TOKEN);
+
 
 
 
