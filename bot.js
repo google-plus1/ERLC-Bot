@@ -23,8 +23,7 @@ const PORT = process.env.PORT || 3000;
 // 🚍 Which Discord voice channel each route uses
 const ROUTE_CHANNELS = {
   "Lijn 6": "1430272873037168821",     // example: 1386237181189468192
-  "Line A": "1430272873037168821",
-  "Line C": "1430272873037168821",
+  "Lijn 12": "1430272873037168821",
   "FastLine": "1430272873037168821",
 };
 
@@ -144,6 +143,7 @@ app.listen(PORT, () => {
 });
 
 client.login(TOKEN);
+
 
 
 
