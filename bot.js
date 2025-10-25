@@ -14,13 +14,13 @@ import {
   VoiceConnectionStatus,
 } from "@discordjs/voice";
 import { Client, GatewayIntentBits } from "discord.js";
-import express from "express";
-import cors from "cors";
+
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 let activeDepartures = []; // gedeelde data voor alle gebruikers
+
 
 // ----- Config -----
 const TOKEN = process.env.DISCORD_BOT_TOKEN; // set this in Render Environment
@@ -167,6 +167,7 @@ app.post("/departures", (req, res) => {
 
 
 client.login(TOKEN);
+
 
 
 
