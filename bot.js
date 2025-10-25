@@ -34,11 +34,6 @@ const ROUTE_CHANNELS = {
   "FastLine": "1430272873037168821",
 };
 
-// ----- Express setup -----
-const app = express();
-app.use(cors());
-app.use(express.json());
-
 // ----- Discord client setup -----
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
@@ -167,6 +162,7 @@ app.post("/departures", (req, res) => {
 
 
 client.login(TOKEN);
+
 
 
 
