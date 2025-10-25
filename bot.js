@@ -25,7 +25,6 @@ let activeDepartures = []; // gedeelde data voor alle gebruikers
 // ----- Config -----
 const TOKEN = process.env.DISCORD_BOT_TOKEN; // set this in Render Environment
 const GUILD_ID = process.env.GUILD_ID;       // your Discord server ID
-const PORT = process.env.PORT || 3000;
 
 // 🚍 Which Discord voice channel each route uses
 const ROUTE_CHANNELS = {
@@ -162,6 +161,7 @@ app.post("/departures", (req, res) => {
 
 
 client.login(TOKEN);
+
 
 
 
