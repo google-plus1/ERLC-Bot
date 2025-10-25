@@ -144,14 +144,11 @@ app.post("/next-station", async (req, res) => {
   }
 });
 
-// ----- Start server -----
-app.listen(PORT, () => {
-  console.log(`🚀 Bot web server running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Bot web server running on port ${PORT}`));
 
-// ==========================
-// API endpoints voor vertrektijden
-// ==========================
+
+// ===== Vertrektijden API =====
 app.get("/departures", (req, res) => {
   res.json(activeDepartures);
 });
@@ -159,13 +156,18 @@ app.get("/departures", (req, res) => {
 app.post("/departures", (req, res) => {
   const { line, stop, time } = req.body;
   if (!line || !time) return res.status(400).json({ error: "Missing data" });
+
+  // lijn updaten of toevoegen
   activeDepartures = activeDepartures.filter(d => d.line !== line);
   activeDepartures.push({ line, stop, time });
+  console.log("🚍 Nieuw vertrek:", line, "->", stop, time);
   res.json({ success: true });
 });
 
 
+
 client.login(TOKEN);
+
 
 
 
