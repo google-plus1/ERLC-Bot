@@ -35,10 +35,12 @@ let audioPlayer = createAudioPlayer();
 
 // Mapping van routes naar voicekanalen
 const ROUTE_CHANNELS = {
-  "Lijn 6": "lijn 70 (dont delete)", // Vul je kanaalnaam hier in
+  "Lijn 6": "lijn 70 (dont delete)",
+  "Lijn 12": "lijn 70 (dont delete)",
+  "Fastline": "lijn 70 (dont delete)",// Pas dit aan aan je kanaalnaam
 };
 
-// 🔊 Functie om verbinding te maken met voice channel
+// 🔊 Verbinding met voicekanaal
 async function connectToVoice(routeName) {
   try {
     const guild = await client.guilds.fetch(GUILD_ID);
@@ -64,7 +66,7 @@ async function connectToVoice(routeName) {
   }
 }
 
-// 🔊 Functie om audio af te spelen
+// 🔊 Audio afspelen (10s vertraging + last station support)
 function playAudio(stationName, isLast = false) {
   const basePath = path.resolve("./audio");
   const cleanName = stationName.toLowerCase().replace(/\s+/g, "_");
@@ -91,12 +93,12 @@ function playAudio(stationName, isLast = false) {
         }
       }, 7000);
     }
-  }, 10000); // 10 seconden vertraging
+  }, 10000);
 }
 
 // ====== Express API ======
 
-// 📥 Ontvangen van “next station” verzoek
+// 📥 Ontvangen van “next station”
 app.post("/next-station", async (req, res) => {
   const { routeName, stationName, isLast } = req.body;
   console.log(`➡️ Next station request: ${routeName} -> ${stationName}`);
@@ -115,13 +117,12 @@ app.post("/next-station", async (req, res) => {
   }
 });
 
-// 📤 Ontvangen wanneer een chauffeur een route laadt of vertrekt
+// 📤 Chauffeur laadt of vertrekt met een route
 app.post("/api/departures", (req, res) => {
   const { routeName, driver, departTime } = req.body;
   if (!routeName || !driver || !departTime)
     return res.status(400).json({ error: "Missing fields" });
 
-  // Als de route al bestaat → update hem
   const existing = activeDepartures.find(r => r.routeName === routeName);
   if (existing) {
     existing.driver = driver;
@@ -139,11 +140,18 @@ app.get("/api/departures", (req, res) => {
   res.json(activeDepartures);
 });
 
-// Start server
+// 🧹 Reset alle vertrektijden (alleen voor admins)
+app.post("/api/reset", (req, res) => {
+  activeDepartures = [];
+  console.log("🧹 Alle vertrektijden gewist!");
+  res.json({ success: true, message: "Alle vertrektijden gewist" });
+});
+
+// ====== Start server ======
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Bot web server running on port ${PORT}`));
 
-// Discord login
+// ====== Discord Login ======
 client.once("clientReady", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 });
